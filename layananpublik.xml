@@ -11,10 +11,11 @@
     <script src='https://cdn.tailwindcss.com'/>
     <link crossorigin='anonymous' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css' referrerpolicy='no-referrer' rel='stylesheet' xintegrity='sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=='/>
     <link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap' rel='stylesheet'/>
-    <script defer='defer' src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js'/>
+        <script defer='defer' src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js'/>
     <link href='https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css' rel='stylesheet'/>
     <script defer='defer' src='https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js'/>
     
+
     <!-- Custom CSS for Blogger -->
     <b:skin><![CDATA[
       /* Custom CSS can go here if needed, but the style tag below is sufficient */
@@ -97,7 +98,7 @@
                 <header class='px-3 pt-3 pb-1 md:py-6'>
                   <div class='container mx-auto max-w-4xl flex items-center justify-between gap-4'>
                     <div class='flex items-center gap-4'>
-                      <img alt='Logo IAIN Bone' class='h-10 w-10 object-contain' src='https://drive.google.com/thumbnail?id=1hGX3tUNIjjGK20bsMWc6l6pycZF6OG16'/>
+                      <img alt='Logo IAIN Bone' class='h-10 w-10 object-contain' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEivDAkuxazRpasK-Kj0Tf1RXGNSrUoVyfvMyq-lXn_NBI2wXgCdjb1CBLGR7sC-r5cGU6njQnQ3TG551VMK03pSui50uEU5Ot8ScLiKskrcY-2yjuNt_xt8jnGcIjCPCtXN7yzb_9Me6G2ceSWv55vF_ZDTCk8tF0zseZ4fdrW764wiSlnBMLItY_4xdyY/s1600/logoiainbone%20-%20Copy%20%283%20%282%29.png'/>
                       <h1 class='text-xl font-bold text-brand-green'>Layanan IAIN Bone</h1>
                     </div>
                     <section class='hidden md:flex items-center gap-2' id='tracking-section'>
@@ -1276,31 +1277,80 @@
 
       function loadAllPublicData() {
         if (document.getElementById('content-wrapper').style.display === 'none') return;
+    
+        const CACHE_KEY = 'allPublicDataCache';
+        const CACHE_DURATION_MS = 5 * 60 * 1000; // Cache berlaku selama 5 menit
+    
+        // --- LANGKAH 1: Coba muat data dari cache terlebih dahulu ---
+        const cachedItemStr = localStorage.getItem(CACHE_KEY);
+        let isLoadedFromCache = false;
+        if (cachedItemStr) {
+            try {
+                const cachedItem = JSON.parse(cachedItemStr);
+                const isExpired = Date.now() - cachedItem.timestamp > CACHE_DURATION_MS;
+                if (!isExpired) {
+                    console.log("Memuat data dari cache untuk tampilan cepat...");
+                    skeletonLoader.classList.add('hidden');
+                    realContent.classList.remove('hidden');
+                    onLayananSuccess(cachedItem.data.layanan || []);
+                    onInfoSuccess(cachedItem.data.info || []);
+                    isLoadedFromCache = true;
+                }
+            } catch (e) {
+                // Jika ada error pada data cache, hapus saja
+                localStorage.removeItem(CACHE_KEY);
+            }
+        }
+    
+        // --- LANGKAH 2: Selalu ambil data terbaru dari jaringan di latar belakang ---
+        console.log("Mengambil data baru dari jaringan...");
         const layananPromise = fetch(GAS_WEB_APP_URL + '?action=getPublicLayanan').then(res => res.json());
         const infoPromise = fetch(GAS_WEB_APP_URL + '?action=getPublicInfo').then(res => res.json());
-        
+    
         Promise.allSettled([layananPromise, infoPromise])
           .then((results) => {
-              skeletonLoader.classList.add('hidden');
-              realContent.classList.remove('hidden');
-
-              if (results[0].status === 'fulfilled') {
-                  onLayananSuccess(results[0].value || []);
+              const layananSuccess = results[0].status === 'fulfilled';
+              const infoSuccess = results[1].status === 'fulfilled';
+    
+              if (layananSuccess && infoSuccess) {
+                  const freshLayananData = results[0].value || [];
+                  const freshInfoData = results[1].value || [];
+    
+                  // Tampilkan konten jika belum ditampilkan dari cache
+                  if (!isLoadedFromCache) {
+                      skeletonLoader.classList.add('hidden');
+                      realContent.classList.remove('hidden');
+                  }
+    
+                  // Render data terbaru dari jaringan
+                  onLayananSuccess(freshLayananData);
+                  onInfoSuccess(freshInfoData);
+    
+                  // --- LANGKAH 3: Simpan data terbaru ke cache untuk kunjungan berikutnya ---
+                  const itemToCache = {
+                      data: {
+                          layanan: freshLayananData,
+                          info: freshInfoData
+                      },
+                      timestamp: Date.now()
+                  };
+                  localStorage.setItem(CACHE_KEY, JSON.stringify(itemToCache));
+                  console.log("Cache diperbarui dengan data baru.");
+    
               } else {
-                  onLayananFailure(results[0].reason);
-              }
-
-              if (results[1].status === 'fulfilled') {
-                  onInfoSuccess(results[1].value || []);
-              } else {
-                  onInfoFailure(results[1].reason);
+                  // Jika pengambilan data gagal DAN tidak ada cache, baru tampilkan error
+                  if (!isLoadedFromCache) {
+                      if (!layananSuccess) onLayananFailure(results[0].reason);
+                      if (!infoSuccess) onInfoFailure(results[1].reason);
+                  }
               }
               const reloadBtn = document.getElementById('reload-button');
-              if(reloadBtn) {
-                reloadBtn.innerHTML = '<i class="fas fa-sync-alt mr-2"></i>Data Tidak Termuat sempurna ? Muat Ulang Halaman';
-                reloadBtn.disabled = false;
+              if (reloadBtn) {
+                  reloadBtn.innerHTML = '<i class="fas fa-sync-alt mr-2"></i>Data Tidak Termuat sempurna ? Muat Ulang Halaman';
+                  reloadBtn.disabled = false;
               }
           });
+    
         fetch(GAS_WEB_APP_URL + '?action=recordVisit');
       }
       
